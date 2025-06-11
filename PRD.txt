@@ -1,0 +1,504 @@
+# MeetingSync for Jira - Revised Product Requirements Document
+
+**Version:** 2.0  
+**Date:** June 7, 2025  
+**Status:** Final for Development  
+
+---
+
+## Executive Summary
+
+**Product Name:** MeetingSync for Jira  
+**Vision:** AI-powered meeting intelligence that seamlessly integrates with Jira workflows using Atlassian Forge platform  
+**Problem Statement:** Teams lose critical context between meetings and Jira tickets, with decisions and action items failing to update project tracking automatically  
+**Solution:** Forge-native app with tiered AI processing that extracts meeting insights and automatically updates Jira tickets via Model Context Protocol (MCP)
+
+---
+
+## 1. Product Overview
+
+### 1.1 Target Market & User Segments
+
+**Primary Users:**
+- Software development teams (10-500 person teams)
+- Project managers and Scrum masters using Jira Cloud
+- Enterprise customers requiring secure AI processing
+
+**Secondary Users:**
+- Regulated industries needing "Runs on Atlassian" compliance
+- Innovation-focused teams wanting cutting-edge AI features
+
+### 1.2 Tiered Value Proposition
+
+#### Basic Edition ("Runs on Atlassian" Compliant)
+- Manual transcript upload and processing
+- Basic meeting context extraction without external AI
+- Full data residency compliance
+- Secure for regulated industries
+
+#### AI-Powered Edition (Recommended)
+- Full Whisper speech-to-text integration
+- Claude-powered meeting analysis and insights
+- Advanced speaker identification
+- Real-time processing capabilities
+
+#### Enterprise Edition
+- All AI features plus advanced analytics
+- Team communication insights
+- Custom integrations and priority support
+
+### 1.3 Success Metrics
+- **Adoption:** 80% team usage within 30 days
+- **Engagement:** 3+ meetings processed per team per week
+- **Value:** 15 minutes saved per developer per day
+- **Revenue:** Target $50K ARR by month 6
+
+---
+
+## 2. Technical Architecture (Revised)
+
+### 2.1 Platform Foundation
+**Core Platform:** Atlassian Forge (Serverless FaaS)
+- **Runtime:** Node.js 18.x with up to 1,024MB memory allocation
+- **Execution Time:** Up to 15 minutes for complex processing
+- **Storage:** Forge SQL (MySQL/TiDB-based) with automatic data residency
+- **Authentication:** Forge-managed OAuth with MCP integration
+
+### 2.2 Database Architecture
+
+```sql
+-- Core Forge SQL Schema (MySQL/TiDB Compatible)
+CREATE TABLE teams (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    jira_config JSON NOT NULL,
+    tier ENUM('basic', 'ai', 'enterprise') DEFAULT 'basic',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE meetings (
+    id VARCHAR(36) PRIMARY KEY,
+    team_id VARCHAR(36) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    transcript_text TEXT,
+    processed_data JSON,
+    participants JSON,
+    meeting_type VARCHAR(50),
+    processing_status ENUM('pending', 'processing', 'completed', 'failed'),
+    FOREIGN KEY (team_id) REFERENCES teams(id)
+);
+
+CREATE TABLE ticket_mentions (
+    id VARCHAR(36) PRIMARY KEY,
+    meeting_id VARCHAR(36) NOT NULL,
+    ticket_id VARCHAR(50) NOT NULL,
+    discussion_summary TEXT,
+    action_items JSON,
+    key_decisions JSON,
+    sentiment_score DECIMAL(3,2),
+    mcp_update_status ENUM('pending', 'success', 'failed'),
+    FOREIGN KEY (meeting_id) REFERENCES meetings(id)
+);
+```
+
+### 2.3 AI Processing Pipeline
+
+#### Basic Edition Processing
+```javascript
+// Local text processing without external APIs
+class BasicProcessor {
+    extractTicketMentions(transcript) {
+        // Regex-based ticket detection (PROJ-123 format)
+        return transcript.match(/[A-Z]+-\d+/g) || [];
+    }
+    
+    generateBasicSummary(transcript) {
+        // Simple keyword extraction and summarization
+        return this.extractKeywords(transcript);
+    }
+}
+```
+
+#### AI Edition Processing
+```javascript
+// External AI integration with cost optimization
+class AIProcessor {
+    async transcribeAudio(audioFile) {
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}` },
+            body: this.prepareAudioPayload(audioFile)
+        });
+        return response.json();
+    }
+    
+    async analyzeWithClaude(transcript, ticketContext) {
+        const prompt = this.buildAnalysisPrompt(transcript, ticketContext);
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'x-api-key': CLAUDE_API_KEY },
+            body: JSON.stringify({ model: 'claude-3-sonnet-20240229', messages: [{ role: 'user', content: prompt }] })
+        });
+        return response.json();
+    }
+}
+```
+
+### 2.4 MCP Integration Strategy
+
+```javascript
+// Production MCP integration with fallback
+class JiraMCPClient {
+    constructor() {
+        this.mcpClient = new MCPClient({
+            serverPath: 'cosmix/jira-mcp',
+            config: {
+                JIRA_API_TOKEN: process.env.JIRA_API_TOKEN,
+                JIRA_BASE_URL: process.env.JIRA_BASE_URL,
+                JIRA_USER_EMAIL: process.env.JIRA_USER_EMAIL
+            }
+        });
+        this.restFallback = new JiraRestClient();
+    }
+    
+    async updateTicket(ticketId, meetingContext) {
+        try {
+            return await this.mcpClient.addComment(ticketId, meetingContext);
+        } catch (error) {
+            console.warn('MCP failed, using REST fallback', error);
+            return await this.restFallback.addComment(ticketId, meetingContext);
+        }
+    }
+}
+```
+
+---
+
+## 3. Feature Specifications
+
+### 3.1 Core Features (All Editions)
+
+#### Meeting Upload & Processing
+- **Input Formats:** Audio files (.mp3, .wav, .m4a) or text transcripts
+- **Processing:** Automatic ticket mention detection
+- **Storage:** Secure Forge SQL with automatic backups
+- **Integration:** MCP-powered Jira updates with REST fallback
+
+#### Jira Tab Panel Integration
+- **Location:** Custom "Meeting Context" tab on all Jira issues
+- **Display:** Chronological meeting history with context
+- **Performance:** Sub-3 second load times with caching
+- **Real-time:** WebSocket updates for live meetings (AI edition)
+
+#### Meeting Context Display
+```typescript
+interface MeetingContext {
+    meetingTitle: string;
+    date: Date;
+    participants: string[];
+    keyDecisions: Decision[];
+    actionItems: ActionItem[];
+    discussionSummary: string;
+    relevantTickets: string[];
+}
+```
+
+### 3.2 AI Edition Exclusive Features
+
+#### Advanced Audio Processing
+- **Whisper Integration:** OpenAI Whisper API with speaker diarization
+- **Cost Optimization:** Intelligent chunking and caching strategies
+- **Quality Enhancement:** Audio preprocessing and noise reduction
+- **Real-time Processing:** Live meeting transcription capabilities
+
+#### Intelligent Analysis
+- **Context Extraction:** Claude-powered meeting analysis
+- **Speaker Identification:** Voice fingerprinting and attribution
+- **Sentiment Analysis:** Meeting tone and team dynamics insights
+- **Workflow Suggestions:** AI-generated action items and assignments
+
+### 3.3 Enterprise Edition Features
+
+#### Advanced Analytics
+- **Team Insights:** Communication patterns and meeting effectiveness
+- **Project Correlation:** Meeting impact on sprint velocity
+- **Trend Analysis:** Long-term team productivity metrics
+- **Custom Reports:** Exportable analytics dashboards
+
+#### Integration & Compliance
+- **SSO Integration:** Enterprise authentication systems
+- **Audit Logging:** Comprehensive activity tracking
+- **Data Export:** Migration and backup capabilities
+- **Custom Workflows:** Tailored meeting-to-ticket automation
+
+---
+
+## 4. Development Timeline (AI-Accelerated)
+
+### 4.1 6-Week Sprint Plan
+
+#### Week 1-2: Foundation & Core Integration
+**Development Focus:**
+- Forge project setup with tiered configuration
+- Complete Forge SQL schema and migrations
+- MCP client implementation with fallback strategies
+- Basic Jira tab panel with UI Kit components
+- File upload handling and storage operations
+
+**Deliverables:**
+- Working Forge app with Jira integration
+- Basic meeting storage and retrieval
+- MCP connectivity established
+- Development environment configured
+
+#### Week 3-4: AI Processing Pipeline
+**Development Focus:**
+- Whisper API integration with optimization
+- Claude API integration for content analysis
+- Basic vs AI processing mode implementation
+- Cost management and caching strategies
+- Error handling and retry mechanisms
+
+**Deliverables:**
+- Full AI processing pipeline operational
+- Transcript analysis with ticket extraction
+- Meeting summaries and action items
+- Performance optimized for production loads
+
+#### Week 5-6: Production Readiness
+**Development Focus:**
+- Real-time processing capabilities
+- Advanced UI/UX with meeting analytics
+- Security hardening and compliance features
+- Comprehensive testing across Jira instances
+- Documentation and marketplace preparation
+
+**Deliverables:**
+- Production-ready application
+- Complete feature set implemented
+- Security and performance validated
+- Marketplace submission ready
+
+### 4.2 Milestone Gates
+
+**Week 2 Gate:** Basic functionality demo
+- Manual transcript upload working
+- Simple Jira integration functional
+- Basic meeting context display
+
+**Week 4 Gate:** AI features complete
+- Full audio processing pipeline
+- Advanced meeting analysis
+- Real-time capabilities tested
+
+**Week 6 Gate:** Production launch
+- All security requirements met
+- Performance benchmarks achieved
+- User acceptance testing completed
+
+---
+
+## 5. Manifest Configuration
+
+### 5.1 Basic Edition Manifest
+```yaml
+permissions:
+  scopes:
+    - 'read:jira-work'
+    - 'write:jira-work'
+    - 'storage:app'
+  # No external fetch - qualifies for "Runs on Atlassian"
+
+modules:
+  jira:issuePanel:
+    - key: meeting-context-panel
+      resource: meeting-ui
+      resolver:
+        function: meeting-resolver
+  
+  webTrigger:
+    - key: upload-endpoint
+      function: process-upload
+      
+  function:
+    - key: meeting-resolver
+      handler: src/resolvers/meeting.handler
+    - key: process-upload
+      handler: src/handlers/upload.handler
+```
+
+### 5.2 AI Edition Manifest
+```yaml
+permissions:
+  scopes:
+    - 'read:jira-work'
+    - 'write:jira-work'
+    - 'storage:app'
+  external:
+    fetch:
+      backend:
+        - address: 'api.openai.com'
+          category: 'ai-processing'
+        - address: 'api.anthropic.com'
+          category: 'ai-processing'
+
+# Same modules as Basic Edition plus:
+modules:
+  scheduledTrigger:
+    - key: process-ai-queue
+      function: ai-processor
+      interval: minute
+      
+  function:
+    - key: ai-processor
+      handler: src/ai/processor.handler
+      memory: 1024  # Maximum memory for AI processing
+```
+
+---
+
+## 6. Security & Compliance
+
+### 6.1 Data Protection
+- **Encryption:** All data encrypted at rest and in transit
+- **Isolation:** Tenant data strictly partitioned per Forge requirements
+- **Residency:** Automatic data residency compliance via Forge infrastructure
+- **Retention:** Configurable data retention policies per enterprise requirements
+
+### 6.2 "Runs on Atlassian" Compliance (Basic Edition)
+- **Zero Egress:** No external API calls or data transmission
+- **Atlassian Hosting:** Complete infrastructure hosted on Atlassian platform
+- **Data Residency:** Automatic compliance with customer data location requirements
+- **Verification:** Programmatically verified by Atlassian systems
+
+### 6.3 AI Edition Security
+- **Transparent Egress:** Clear disclosure of AI API usage
+- **Customer Control:** Configurable AI processing preferences
+- **Data Minimization:** Only relevant meeting content sent to AI services
+- **Audit Trail:** Complete logging of all external API interactions
+
+---
+
+## 7. Business Model & Pricing
+
+### 7.1 Pricing Tiers
+
+#### Basic Edition: $5/user/month
+- Manual transcript processing
+- Basic meeting context
+- "Runs on Atlassian" compliance
+- Community support
+
+#### AI Edition: $15/user/month
+- Full AI processing (Whisper + Claude)
+- Advanced meeting intelligence
+- Real-time capabilities
+- Email support
+
+#### Enterprise Edition: Custom pricing
+- All AI features plus advanced analytics
+- Custom integrations
+- Priority support and SLA
+- Professional services available
+
+### 7.2 Market Strategy
+- **Free Trial:** 14-day trial for all editions
+- **Freemium Option:** Basic edition free for teams <5 users
+- **Enterprise Sales:** Direct sales for 100+ user organizations
+- **Marketplace Distribution:** Primary channel via Atlassian Marketplace
+
+---
+
+## 8. Risk Assessment & Mitigation
+
+### 8.1 Technical Risks
+
+#### High Priority
+- **AI API Costs:** Mitigation via intelligent caching and preprocessing
+- **Performance at Scale:** Mitigation via Forge SQL optimization and caching layers
+- **MCP Reliability:** Mitigation via REST API fallback and comprehensive error handling
+
+#### Medium Priority  
+- **Audio Quality Dependency:** Mitigation via quality scoring and user feedback
+- **Forge Platform Changes:** Mitigation via following Forge roadmap and early access programs
+
+### 8.2 Business Risks
+
+#### Market Risks
+- **Competition:** Fast development cycle and unique "Runs on Atlassian" positioning
+- **Customer Adoption:** Focus on clear value demonstration and seamless integration
+
+#### Operational Risks
+- **Support Scaling:** Tiered support model with automated responses and comprehensive documentation
+
+---
+
+## 9. Success Metrics & KPIs
+
+### 9.1 Product Metrics
+- **Monthly Active Users (MAU):** Target 1,000 by month 6
+- **Meeting Processing Volume:** Target 10,000 meetings/month by month 6
+- **Ticket Updates Generated:** Target 50,000 automatic updates by month 6
+- **User Retention:** Target >80% monthly retention
+
+### 9.2 Business Metrics
+- **Annual Recurring Revenue (ARR):** Target $500K by month 12
+- **Customer Acquisition Cost (CAC):** Target <$100 per customer
+- **Lifetime Value (LTV):** Target >$2,000 per customer
+- **Net Promoter Score (NPS):** Target >50
+
+### 9.3 Technical Metrics
+- **Response Time:** <3 seconds for Jira tab panel loads
+- **Uptime:** >99.5% availability
+- **Processing Accuracy:** >95% ticket mention detection
+- **Cost per Processing:** <$0.10 per meeting processed
+
+---
+
+## 10. Future Roadmap (Post-MVP)
+
+### 10.1 Q3 2025: Enhanced Integration
+- **Multi-platform Support:** Teams, Google Meet, Zoom integrations
+- **Advanced Workflows:** Custom automation rules and triggers
+- **Mobile App:** Native iOS/Android companion apps
+
+### 10.2 Q4 2025: AI Advancement
+- **Custom Models:** Trained models for specific team contexts
+- **Predictive Analytics:** Project timeline and risk prediction
+- **Voice Commands:** "Claude, update PROJ-123 with what we discussed"
+
+### 10.3 2026: Platform Expansion
+- **Confluence Integration:** Meeting-driven documentation updates
+- **Slack Integration:** Seamless cross-platform meeting intelligence
+- **API Platform:** Third-party integrations and custom extensions
+
+---
+
+## 11. Appendix
+
+### 11.1 Technical Dependencies
+- **Forge CLI:** Latest version (11.5.0+)
+- **Node.js:** Version 18.x (Forge standard)
+- **MCP Libraries:** cosmix/jira-mcp or equivalent
+- **AI APIs:** OpenAI Whisper, Anthropic Claude (AI edition only)
+
+### 11.2 Development Resources
+- **Team Size:** 2-3 developers (1 lead + 1-2 full-stack)
+- **Infrastructure:** Forge platform (free through 2025)
+- **External Costs:** AI API usage (estimated $500-2000/month at scale)
+
+### 11.3 Competitive Analysis
+- **Direct Competitors:** Otter.ai, Gong.io (but no deep Jira integration)
+- **Competitive Advantage:** Native Forge integration + "Runs on Atlassian" option
+- **Market Differentiation:** Only meeting intelligence with true Jira workflow integration
+
+---
+
+**Document Status:** Ready for Development  
+**Next Steps:** Begin Week 1 development sprint  
+**Review Cycle:** Weekly during development, monthly post-launch
+
+---
+
+*This PRD incorporates lessons learned from Forge platform research, MCP ecosystem analysis, and AI integration best practices. It balances ambitious AI capabilities with realistic enterprise compliance requirements.*

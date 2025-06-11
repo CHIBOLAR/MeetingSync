@@ -13,7 +13,7 @@ modules:
 
 resources:
   - key: main
-    path: src/frontend/
+    path: static/meeting-app/build
 
 app:
   runtime:
@@ -26,3 +26,9 @@ permissions:
     - write:jira-work
     - read:jira-user
     - read:jira-work
+  external:
+    fetch:
+      backend:
+        - "*.zoom.us"
+        - "*.teams.microsoft.com"
+        - "*.meet.google.com"

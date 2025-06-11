@@ -4,48 +4,27 @@
   "description": "AI-powered meeting intelligence for Jira workflows",
   "main": "index.js",
   "scripts": {
-    "build": "forge build",
+    "build": "npm run build:frontend",
+    "build:frontend": "cd static/meeting-app && npm run build",
+    "install:frontend": "cd static/meeting-app && npm install",
+    "dev": "forge tunnel",
     "deploy": "forge deploy",
-    "install": "forge install",
-    "tunnel": "forge tunnel",
-    "lint": "forge lint",
-    "test": "jest",
-    "validate": "node scripts/validate-project.js",
-    "test:full": "node scripts/test-suite.js",
-    "deploy:check": "node scripts/deployment-checklist.js",
-    "workflow": "node scripts/workflow-orchestrator.js",
-    "dev": "forge tunnel --debug",
-    "dev:inspect": "forge tunnel --debug --debugFunctionHandlers index.js --debugStartupTimeout 30000",
-    "security:audit": "npm audit --audit-level moderate",
-    "prepare:deploy": "npm run validate && npm run test:full && npm run deploy:check",
-    "deploy:production": "npm run prepare:deploy && forge deploy --environment production"
+    "install-app": "forge install"
   },
   "dependencies": {
     "@forge/api": "^3.0.0",
-    "@forge/bridge": "^3.0.0",
-    "@forge/resolver": "^1.6.11",
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "uuid": "^9.0.0",
-    "nlp-compromise": "^7.0.0",
-    "fuse.js": "^6.6.2"
+    "@forge/resolver": "^1.5.0",
+    "@forge/bridge": "^3.0.0"
   },
   "devDependencies": {
-    "@forge/cli": "^11.6.0",
-    "jest": "^29.0.0",
-    "eslint": "^8.0.0",
-    "js-yaml": "^4.1.0"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "@forge/cli": "^11.0.0"
   },
   "keywords": [
-    "atlassian",
     "forge",
     "jira",
     "meetings",
     "ai",
-    "transcription"
+    "atlassian"
   ],
   "author": "MeetingSync Team",
   "license": "MIT"

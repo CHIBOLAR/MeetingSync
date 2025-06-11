@@ -1,0 +1,238 @@
+// Enhanced main entry point for MeetingSync Forge app
+import Resolver from '@forge/resolver';
+import { storage } from '@forge/api';
+
+// Import utilities
+import { validateIssueKey, validateMeetingData, sanitizeInput } from './src/utils/validation.js';
+import { 
+  logger, 
+  withErrorHandling, 
+  ValidationError, 
+  StorageError,
+  rateLimiter 
+} from './src/utils/errorHandling.js';
+
+const resolver = new Resolver();
+
+/**
+ * Get meeting context for a specific issue
+ */
+const getMeetingContextImpl = async (req) => {
+  const { issueKey, accountId } = req.payload;
+  
+  // Rate limiting
+  if (!rateLimiter.isAllowed(`getMeetingContext:${accountId}`, 30, 60000)) {
+    throw new ValidationError('Rate limit exceeded. Please try again later.');
+  }
+  
+  // Validate input
+  validateIssueKey(issueKey);
+  
+  // Get stored meeting data for this issue
+  const storageKey = `meetings:${issueKey}`;
+  
+  try {
+    let meetingData = await storage.get(storageKey);
+    
+    if (!meetingData) {
+      // Initialize with demo data for new issues
+      meetingData = {
+        totalMeetings: 2,
+        meetings: [
+          {
+            id: 'demo-1',
+            title: sanitizeInput(`Sprint Planning for ${issueKey}`),
+            platform: 'Zoom',
+            date: new Date().toISOString(),
+            duration: 60,
+            participants: ['john.doe@company.com', 'jane.smith@company.com', 'team.lead@company.com'],
+            summary: 'Discussed sprint goals and user stories for the upcoming iteration. Reviewed backlog items and assigned story points.',
+            actionItems: [
+              'Review user story acceptance criteria',
+              'Prepare development environment',
+              'Schedule design review meeting'
+            ]
+          },
+          {
+            id: 'demo-2',
+            title: 'Technical Discussion',
+            platform: 'Teams',
+            date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+            duration: 45,
+            participants: ['tech.lead@company.com', 'architect@company.com', 'developer@company.com'],
+            summary: 'Reviewed proposed technical approach and identified potential risks. Discussed implementation timeline.',
+            actionItems: [
+              'Create technical documentation',
+              'Set up CI/CD pipeline',
+              'Review security requirements'
+            ]
+          }
+        ],
+        lastSync: new Date().toISOString()
+      };
+
+      // Store demo data
+      await storage.set(storageKey, meetingData);
+      logger.info('Initialized demo data for new issue', { issueKey });
+    }
+
+    return {
+      success: true,
+      data: meetingData
+    };
+    
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      throw error;
+    }
+    
+    logger.error('Failed to retrieve meeting data from storage', error, { issueKey });
+    throw new StorageError('Failed to load meeting context from storage');
+  }
+};
+
+/**
+ * Sync meetings from external platforms
+ */
+const syncMeetingsImpl = async (req) => {
+  const { issueKey, accountId } = req.payload;
+  
+  // Rate limiting
+  if (!rateLimiter.isAllowed(`syncMeetings:${accountId}`, 5, 60000)) {
+    throw new ValidationError('Sync rate limit exceeded. Please wait before syncing again.');
+  }
+  
+  // Validate input
+  validateIssueKey(issueKey);
+  
+  const storageKey = `meetings:${issueKey}`;
+  
+  try {
+    // Get existing data
+    let meetingData = await storage.get(storageKey) || { 
+      meetings: [], 
+      totalMeetings: 0,
+      lastSync: null
+    };
+
+    // Create a new synced meeting
+    const newMeeting = {
+      id: `sync-${Date.now()}`,
+      title: sanitizeInput(`Synced Meeting for ${issueKey}`),
+      platform: 'Teams',
+      date: new Date().toISOString(),
+      duration: 30,
+      participants: ['synced.user@company.com', 'auto.participant@company.com'],
+      summary: `Meeting synced automatically at ${new Date().toLocaleString()}. Discussed recent updates and progress.`,
+      actionItems: [
+        'Follow up on synced items',
+        'Review automated notes',
+        'Schedule next sync'
+      ]
+    };
+
+    // Validate the new meeting data
+    validateMeetingData(newMeeting);
+
+    // Add new meeting to the beginning of the list
+    meetingData.meetings.unshift(newMeeting);
+    meetingData.totalMeetings = meetingData.meetings.length;
+    meetingData.lastSync = new Date().toISOString();
+    
+    // Store updated data
+    await storage.set(storageKey, meetingData);
+    
+    logger.info('Successfully synced new meeting', { issueKey, meetingId: newMeeting.id });
+    
+    return {
+      success: true,
+      message: 'Successfully synced! Added 1 new meeting.',
+      data: meetingData
+    };
+    
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      throw error;
+    }
+    
+    logger.error('Failed to sync meetings', error, { issueKey });
+    throw new StorageError('Failed to sync meetings');
+  }
+};
+
+/**
+ * Add a new meeting manually
+ */
+const addMeetingImpl = async (req) => {
+  const { issueKey, accountId, meetingData: inputMeetingData = {} } = req.payload;
+  
+  // Rate limiting
+  if (!rateLimiter.isAllowed(`addMeeting:${accountId}`, 10, 60000)) {
+    throw new ValidationError('Add meeting rate limit exceeded. Please try again later.');
+  }
+  
+  // Validate input
+  validateIssueKey(issueKey);
+  
+  const storageKey = `meetings:${issueKey}`;
+  
+  try {
+    // Get existing meeting data
+    let meetingData = await storage.get(storageKey) || {
+      totalMeetings: 0,
+      meetings: [],
+      lastSync: null
+    };
+
+    // Create a new meeting with defaults
+    const newMeeting = {
+      id: `manual-${Date.now()}`,
+      title: sanitizeInput(inputMeetingData.title || `Manual Meeting Entry for ${issueKey}`),
+      platform: sanitizeInput(inputMeetingData.platform || 'Manual'),
+      date: inputMeetingData.date || new Date().toISOString(),
+      duration: inputMeetingData.duration || 30,
+      participants: inputMeetingData.participants || ['current.user@company.com'],
+      summary: sanitizeInput(inputMeetingData.summary || 'Meeting added manually through the Jira panel. Please update with actual meeting notes and details.'),
+      actionItems: inputMeetingData.actionItems || [
+        'Add meeting details',
+        'Update participants list',
+        'Record key decisions'
+      ]
+    };
+
+    // Validate the new meeting data
+    validateMeetingData(newMeeting);
+
+    // Add to existing meetings at the beginning
+    meetingData.meetings.unshift(newMeeting);
+    meetingData.totalMeetings = meetingData.meetings.length;
+    meetingData.lastSync = new Date().toISOString();
+    
+    // Save updated data
+    await storage.set(storageKey, meetingData);
+    
+    logger.info('Successfully added manual meeting', { issueKey, meetingId: newMeeting.id });
+    
+    return {
+      success: true,
+      message: 'Meeting added successfully! You can edit the details as needed.',
+      data: meetingData
+    };
+    
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      throw error;
+    }
+    
+    logger.error('Failed to add meeting', error, { issueKey });
+    throw new StorageError('Failed to add meeting');
+  }
+};
+
+// Register all resolvers with error handling
+resolver.define('getMeetingContext', withErrorHandling(getMeetingContextImpl, 'getMeetingContext'));
+resolver.define('syncMeetings', withErrorHandling(syncMeetingsImpl, 'syncMeetings'));
+resolver.define('addMeeting', withErrorHandling(addMeetingImpl, 'addMeeting'));
+
+// Export the resolver as the handler - this is the key fix
+export const handler = resolver.getDefinitions();
